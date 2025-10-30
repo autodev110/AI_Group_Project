@@ -27,5 +27,4 @@ Complete an end-to-end optimization workflow using one of the assigned research 
 
 ---
 
-For questions or concerns, please reach out to the instructor.
 
