@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 
 
 def convergence_figure(history: Sequence[Dict]) -> go.Figure:
+    """Render the per-iteration cost trajectory with hoverable Sharpe details."""
     iterations = [state["iter"] for state in history]
     costs = [state["best"]["cost"] for state in history]
     sharpes = [state["best"]["metrics"]["sharpe"] for state in history]
@@ -38,6 +39,7 @@ def convergence_figure(history: Sequence[Dict]) -> go.Figure:
 
 
 def wealth_curve_figure(baseline_curve: pd.Series, optimized_curve: pd.Series, baseline_label: str = "Baseline") -> go.Figure:
+    """Plot side-by-side wealth curves so users can compare $1 growth stories."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=baseline_curve.index, y=baseline_curve.values, name=baseline_label))
     fig.add_trace(
@@ -53,6 +55,7 @@ def wealth_curve_figure(baseline_curve: pd.Series, optimized_curve: pd.Series, b
 
 
 def search_landscape(population: Sequence[Dict]) -> go.Figure:
+    """Visualize the current population's risk-return trade-offs."""
     vol = [cand["metrics"]["volatility"] for cand in population]
     ret = [cand["metrics"]["annual_return"] for cand in population]
     sharpe = [cand["metrics"]["sharpe"] for cand in population]
@@ -77,6 +80,7 @@ def search_landscape(population: Sequence[Dict]) -> go.Figure:
 
 
 def highlight_best_point(fig: go.Figure, best_metrics: Dict[str, float]) -> go.Figure:
+    """Overlay the leading candidate so it stands out in Scatter visuals."""
     fig.add_trace(
         go.Scatter(
             x=[best_metrics["volatility"]],
@@ -90,6 +94,7 @@ def highlight_best_point(fig: go.Figure, best_metrics: Dict[str, float]) -> go.F
 
 
 def weights_bubble_chart(asset_names: Sequence[str], weights: Sequence[float]) -> go.Figure:
+    """Depict the optimized weight vector as an intuitive bubble chart."""
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -110,6 +115,7 @@ def weights_bubble_chart(asset_names: Sequence[str], weights: Sequence[float]) -
 
 
 def forecast_fan_chart(sample_paths: pd.DataFrame, median_path: pd.Series, title: str) -> go.Figure:
+    """Show random Monte Carlo paths with a highlighted median trajectory."""
     fig = go.Figure()
     for column in sample_paths.columns:
         fig.add_trace(
@@ -141,6 +147,7 @@ def forecast_fan_chart(sample_paths: pd.DataFrame, median_path: pd.Series, title
 
 
 def ending_distribution_histogram(ending_wealth: np.ndarray, title: str) -> go.Figure:
+    """Display the terminal wealth distribution from Monte Carlo simulations."""
     fig = go.Figure()
     fig.add_trace(
         go.Histogram(

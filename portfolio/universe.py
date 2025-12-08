@@ -55,6 +55,7 @@ FALLBACK_TICKERS: List[str] = [
 
 
 def _download_spy_holdings() -> List[str]:
+    """Use yfinance to pull SPY holdings sorted by weight."""
     ticker = yf.Ticker("SPY")
     holdings = getattr(ticker, "fund_holdings", None)
     if holdings is None or "symbol" not in holdings:
@@ -66,6 +67,7 @@ def _download_spy_holdings() -> List[str]:
 
 
 def _load_cached_universe() -> List[str] | None:
+    """Return cached holdings from disk if they exist."""
     if not UNIVERSE_CACHE.exists():
         return None
     try:
@@ -75,6 +77,7 @@ def _load_cached_universe() -> List[str] | None:
 
 
 def _store_universe(symbols: List[str]) -> None:
+    """Persist the downloaded holdings list for reuse."""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         UNIVERSE_CACHE.write_text(json.dumps(symbols))

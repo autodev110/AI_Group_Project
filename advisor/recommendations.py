@@ -1,4 +1,11 @@
-"""Rule-based advisory layer translating KPIs into plain-language guidance."""
+"""Rule-based advisory layer translating KPI values into actionable guidance.
+
+Each helper in this module focuses on turning a slice of the KPI bundle into
+human-readable insight so the Streamlit app can explain results without any
+LLM calls.  All rules are intentionally simple and transparent: thresholds are
+hard-coded and justified inline so the project report can reference the exact
+logic used to produce a recommendation.
+"""
 from __future__ import annotations
 
 from typing import Dict, List, Sequence
@@ -7,6 +14,7 @@ from analytics.kpis import PortfolioKPIBundle
 
 
 def _risk_profile(volatility: float, var_95: float) -> str:
+    """Map volatility + Value-at-Risk into a coarse risk label."""
     if volatility < 0.12 and var_95 > -0.1:
         return "Conservative"
     if volatility < 0.2 and var_95 > -0.2:
@@ -15,6 +23,7 @@ def _risk_profile(volatility: float, var_95: float) -> str:
 
 
 def _performance_summary(baseline: PortfolioKPIBundle, optimized: PortfolioKPIBundle) -> str:
+    """Summarize Sharpe improvements relative to the benchmark."""
     sharpe_delta = optimized.historical["sharpe"] - baseline.historical["sharpe"]
     if sharpe_delta > 0.2:
         return (
@@ -35,6 +44,7 @@ def _performance_summary(baseline: PortfolioKPIBundle, optimized: PortfolioKPIBu
 
 
 def _diversification_comment(weights: Sequence[float], assets: Sequence[str]) -> str:
+    """Highlight the most concentrated sleeve and warn the user if needed."""
     max_weight = max(weights)
     idx = weights.index(max_weight)
     asset = assets[idx]
@@ -51,6 +61,7 @@ def _actionable_points(
     weights: Sequence[float],
     assets: Sequence[str],
 ) -> List[str]:
+    """Produce a bullet list of annotated coaching points derived from KPIs."""
     actions: List[str] = []
     sharpe_delta = optimized.historical["sharpe"] - baseline.historical["sharpe"]
     if sharpe_delta > 0:
@@ -83,6 +94,7 @@ def generate_advice(
     weights: Sequence[float],
     assets: Sequence[str],
 ) -> Dict[str, List[str] | str]:
+    """Assemble the full advisory payload consumed by the dashboard."""
     risk = _risk_profile(optimized.historical["volatility"], optimized.forecast["var_95"])
     summary = _performance_summary(baseline, optimized)
     diversification = _diversification_comment(list(weights), assets)

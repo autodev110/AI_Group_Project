@@ -1,4 +1,15 @@
-"""Utilities for downloading and caching price data for the IWO demo."""
+"""Utilities for downloading and caching price data for the IWO demo.
+
+This module centralizes all filesystem I/O so other packages interact purely
+with pandas DataFrames.  It handles three main responsibilities:
+
+1. Pulling multi-asset panels from Yahoo Finance, forward-filling / cleaning
+   them, and caching them to `data/cached_prices.parquet`.
+2. Tracking metadata about the cached window so we only refresh when the user
+   widens the requested dates or forces a refresh.
+3. Downloading and caching the S&P 500 (^GSPC) benchmark separately so the
+   dashboard can always compare against a consistent baseline.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -70,7 +81,7 @@ def _download_prices(request: DataRequest) -> pd.DataFrame:
         auto_adjust=False,
         actions=False,
     )
-    adj_close = data.get("Adj Close") if isinstance(data, pd.DataFrame) else data
+    adj_close = data.get("Adj Close") if isinstance(data, pd.DataFrame) else data  # defensive: Series when single ticker
     if adj_close is None:
         raise RuntimeError("Yahoo Finance response did not contain adjusted close prices")
     if isinstance(adj_close, pd.Series):
@@ -85,11 +96,11 @@ def _cache_is_valid(request: DataRequest, meta: CacheMetadata | None) -> bool:
     if request.force_refresh:
         return False
     if meta is None:
-        return False
+        return False  # no metadata means no cache
     requested = set(request.tickers)
     cached = set(meta.tickers)
     if not requested.issubset(cached):
-        return False
+        return False  # cache missing one of the desired tickers
     return pd.Timestamp(meta.start) <= request.start and pd.Timestamp(meta.end) >= request.end
 
 
@@ -103,6 +114,7 @@ def _load_cached_prices(path: Path) -> pd.DataFrame | None:
 
 
 def _clean_price_panel(raw: pd.DataFrame, tickers: Sequence[str]) -> Tuple[pd.DataFrame, List[str]]:
+    """Filter to overlapping history, forward-fill, and flag removed tickers."""
     subset = raw.loc[:, tickers]
     subset = subset.sort_index().astype(float)
     subset = subset.dropna(how="all")
@@ -134,7 +146,7 @@ def load_prices_and_returns(request: DataRequest) -> Tuple[pd.DataFrame, pd.Data
         prices = cached_prices
 
     window = prices.loc[norm_request.start : norm_request.end, norm_request.tickers]
-    cleaned, dropped = _clean_price_panel(window, [col for col in window.columns])
+    cleaned, dropped = _clean_price_panel(window, [col for col in window.columns])  # keep contiguous overlapping prices
     log_returns = np.log(cleaned / cleaned.shift(1)).dropna(how="any")
     if log_returns.empty:
         raise ValueError("Not enough price observations remain after cleaning the data.")

@@ -9,7 +9,7 @@ from typing import Dict, List
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
+import streamlit.components.v1 as components  # used for sticky timeline JS hook
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -24,7 +24,7 @@ from portfolio.forecasting import ForecastConfig, project_portfolio
 from portfolio.stats import compute_portfolio_metrics
 from portfolio.universe import get_top_sp500_universe
 
-st.set_page_config(page_title="IWO Portfolio Evolution", layout="wide")
+st.set_page_config(page_title="IWO Portfolio Evolution", layout="wide")  # widescreen so charts have breathing room
 st.markdown(
     """
     <style>
@@ -45,9 +45,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-DEFAULT_YEARS = 4
-MAX_UNIVERSE = 250
-DEFAULT_UNIVERSE_SIZE = 50
+DEFAULT_YEARS = 4  # default lookback window for fetching prices
+MAX_UNIVERSE = 250  # upper bound on selectable SPY constituents
+DEFAULT_UNIVERSE_SIZE = 50  # default number of tickers pulled from SPY holdings
 
 HISTORICAL_SPECS = [
     ("Annual Return", "annual_return", "percent", "Average yearly growth based on historical prices."),
@@ -69,18 +69,20 @@ FORECAST_SPECS = [
 
 
 def _format_value(value: float, fmt: str) -> str:
+    """Pretty-print KPI values according to a simple format keyword."""
     if value is None or pd.isna(value):
-        return "—"
+        return "—"  # gracefully show an em dash when metrics are missing
     if fmt == "percent":
-        return f"{value:.2%}"
+        return f"{value:.2%}"  # convert to percent with two decimals
     if fmt == "multiple":
-        return f"{value:.2f}x"
-    return f"{value:.2f}"
+        return f"{value:.2f}x"  # express Monte Carlo wealth multipliers
+    return f"{value:.2f}"  # default numeric display
 
 
 def _format_delta(delta: float, fmt: str) -> str | None:
+    """Format the delta between two KPIs, respecting percent/multiple units."""
     if delta is None or pd.isna(delta):
-        return None
+        return None  # Streamlit hides the delta arrow when None is returned
     if fmt == "percent":
         return f"{delta:+.2%}"
     if fmt == "multiple":
@@ -89,22 +91,25 @@ def _format_delta(delta: float, fmt: str) -> str | None:
 
 
 def _render_metric_cards(title: str, specs, primary: Dict[str, float], comparison: Dict[str, float] | None) -> None:
-    st.markdown(f"**{title}**")
-    cols = st.columns(len(specs))
-    for (label, key, fmt, _) , col in zip(specs, cols):
+    """Render a row of st.metric widgets plus a caption of plain-English hints."""
+    st.markdown(f"**{title}**")  # section header
+    cols = st.columns(len(specs))  # lay out one metric per column
+    for (label, key, fmt, desc) , col in zip(specs, cols):
+        # Grab the metric, optionally compute the delta vs. comparison, then display it.
         value = primary.get(key)
         delta = None
         if comparison is not None:
             comp_value = comparison.get(key)
             delta = value - comp_value if value is not None and comp_value is not None else None
         col.metric(label, _format_value(value, fmt), _format_delta(delta, fmt))
-    explanations = "  \n".join(f"- {label}: {desc}" for (label, _, _, desc) in specs)
-    st.caption(explanations)
+        # Provide inline help for each metric right under the card.
+        col.caption(desc)
 
 
 def _forecast_config_from_sidebar(state: Dict) -> ForecastConfig:
+    """Build the ForecastConfig object from raw sidebar values."""
     return ForecastConfig(
-        horizon_days=state["forecast_horizon"],
+        horizon_days=state["forecast_horizon"],  # convert slider -> dataclass
         n_paths=state["forecast_paths"],
         method=state["forecast_method"],
         random_seed=state["forecast_seed"],
@@ -112,6 +117,7 @@ def _forecast_config_from_sidebar(state: Dict) -> ForecastConfig:
 
 
 def _clone_forecast_config(cfg: ForecastConfig, seed: int | None) -> ForecastConfig:
+    """Clone forecast settings while letting us change the RNG seed."""
     return ForecastConfig(
         horizon_days=cfg.horizon_days,
         n_paths=cfg.n_paths,
@@ -122,16 +128,17 @@ def _clone_forecast_config(cfg: ForecastConfig, seed: int | None) -> ForecastCon
 
 
 def _build_kpi_bundles(weights: List[float], forecast_cfg: ForecastConfig):
-    log_returns = st.session_state.returns
-    benchmark_returns = st.session_state.sp500_returns
+    """Compute historical + forecast KPIs for both IWO and the S&P 500."""
+    log_returns = st.session_state.returns  # in-sample asset return matrix
+    benchmark_returns = st.session_state.sp500_returns  # ^GSPC series
     if benchmark_returns is None:
         raise RuntimeError("Benchmark data unavailable. Please re-run the simulation.")
-    risk_free = st.session_state.iwo_config.risk_free
+    risk_free = st.session_state.iwo_config.risk_free  # capture user input
     iwo_metrics = compute_portfolio_metrics(weights, log_returns, risk_free=risk_free)
     benchmark_metrics = compute_portfolio_metrics([1.0], benchmark_returns, risk_free=risk_free)
-    start_date = log_returns.index[-1] if len(log_returns.index) else None
+    start_date = log_returns.index[-1] if len(log_returns.index) else None  # align future timeline
     base_seed = forecast_cfg.random_seed
-    iwo_seed = None if base_seed is None else base_seed + 1
+    iwo_seed = None if base_seed is None else base_seed + 1  # ensure distinct random draws
     benchmark_forecast = project_portfolio(
         benchmark_metrics.daily_log_returns,
         _clone_forecast_config(forecast_cfg, base_seed),
@@ -148,6 +155,7 @@ def _build_kpi_bundles(weights: List[float], forecast_cfg: ForecastConfig):
 
 
 def _init_state() -> None:
+    """Set up Streamlit session_state keys so reruns stay predictable."""
     st.session_state.setdefault("history", [])
     st.session_state.setdefault("prices", None)
     st.session_state.setdefault("returns", None)
@@ -162,10 +170,11 @@ def _init_state() -> None:
 
 
 def _run_simulation(config: IWOConfig, request: DataRequest) -> None:
+    """Fetch data, run IWO, and stash results in session_state."""
     with st.spinner("Downloading data and growing the weed colony..."):
-        prices, log_returns, dropped = load_prices_and_returns(request)
-        _, sp500_returns = load_sp500_benchmark(request.start, request.end, request.force_refresh)
-        history = list(run_iwo(log_returns, config))
+        prices, log_returns, dropped = load_prices_and_returns(request)  # asset panel
+        _, sp500_returns = load_sp500_benchmark(request.start, request.end, request.force_refresh)  # index series
+        history = list(run_iwo(log_returns, config))  # run generator to completion for later playback
     st.session_state.history = history
     st.session_state.prices = prices
     st.session_state.returns = log_returns
@@ -178,25 +187,30 @@ def _run_simulation(config: IWOConfig, request: DataRequest) -> None:
 
 
 def _sidebar_controls() -> Dict:
-    st.sidebar.header("Data Choices")
-    start_default = dt.date.today() - dt.timedelta(days=365 * DEFAULT_YEARS)
-    end_default = dt.date.today()
+    """Render all sidebar inputs and return their current values."""
+    st.sidebar.header("Data Choices")  # label the first group of controls
+    start_default = dt.date.today() - dt.timedelta(days=365 * DEFAULT_YEARS)  # default start = N years back
+    end_default = dt.date.today()  # default end = today
     company_count = int(
         st.sidebar.number_input(
             "Number of top S&P 500 companies",
-            min_value=10,
-            max_value=MAX_UNIVERSE,
-            value=DEFAULT_UNIVERSE_SIZE,
-            step=5,
+            min_value=10,  # enforce minimum breadth to avoid degenerate panels
+            max_value=MAX_UNIVERSE,  # obey the maximum we support for performance reasons
+            value=DEFAULT_UNIVERSE_SIZE,  # default to a mid-sized basket (50 names)
+            step=5,  # step in increments of 5 so the widget is easy to use
         )
     )
-    start_date = st.sidebar.date_input("Start date", value=start_default)
+    start_date = st.sidebar.date_input("Start date", value=start_default)  # let users change the lookback window
     end_date = st.sidebar.date_input("End date", value=end_default)
-    risk_free = st.sidebar.number_input("Risk-free rate (annual)", min_value=0.0, max_value=0.1, value=0.01, step=0.001)
-    max_weight = st.sidebar.slider("Diversification cap (max weight)", 0.05, 1.0, 0.3, 0.05)
-    force_universe = st.sidebar.checkbox("Refresh ticker universe", value=False)
-    force_refresh = st.sidebar.checkbox("Force price data refresh", value=False)
-    tickers = get_top_sp500_universe(company_count, force_refresh=force_universe)
+    risk_free = st.sidebar.number_input(
+        "Risk-free rate (annual)", min_value=0.0, max_value=0.1, value=0.01, step=0.001
+    )  # Sharpe baseline
+    max_weight = st.sidebar.slider("Diversification cap (max weight)", 0.05, 1.0, 0.3, 0.05)  # constraint knob
+    force_universe = st.sidebar.checkbox("Refresh ticker universe", value=False)  # skip cache when needed
+    force_refresh = st.sidebar.checkbox("Force price data refresh", value=False)  # likewise for prices
+    tickers = get_top_sp500_universe(
+        company_count, force_refresh=force_universe
+    )  # autopopulated universe honoring the slider
 
     st.sidebar.header("IWO Configuration")
     iterations = st.sidebar.slider("Iterations", min_value=10, max_value=1000, value=300, step=10)
@@ -252,6 +266,7 @@ def _sidebar_controls() -> Dict:
 
 
 def _ensure_simulation(state: Dict) -> None:
+    """Validate sidebar inputs and kick off an IWO run if inputs look good."""
     if not state["tickers"]:
         st.warning("Please choose at least one asset to begin.")
         return
@@ -279,6 +294,7 @@ def _ensure_simulation(state: Dict) -> None:
 
 
 def _metrics_explanation() -> None:
+    """Provide a one-sentence refresher on the statistical terms shown."""
     st.caption(
         "Annual return and volatility are annualized from daily log returns. Sharpe ratio measures return per unit of risk,"
         " and max drawdown captures the worst peak-to-trough loss over the sample."
@@ -322,9 +338,13 @@ if st.session_state.dropped_tickers:
     removed = ", ".join(st.session_state.dropped_tickers)
     st.warning(f"No usable data for: {removed}. Those tickers were removed from the simulation window.")
 selected_universe = sidebar_state["tickers"]
-st.caption(f"Universe: pulling the top {len(selected_universe)} SPY holdings from Yahoo Finance for optimization.")
+st.caption(
+    f"Universe: pulling the top {len(selected_universe)} SPY holdings from Yahoo Finance for optimization."
+)  # remind the user how tickers were selected
 with st.expander("View included tickers"):
-    st.write(", ".join(selected_universe))
+    st.write(
+        ", ".join(selected_universe)
+    )  # give power users the option to inspect the exact ticker list used in the run
 
 if not st.session_state.history:
     st.info("Tweak the sidebar parameters and click **Initialize Simulation** to grow the colony.")
@@ -334,8 +354,8 @@ history: List[Dict] = st.session_state.history
 max_iter = history[-1]["iter"]
 pending_value = st.session_state.get("iteration_slider_pending")
 if pending_value is not None:
-    st.session_state["iteration_slider"] = min(max(pending_value, 0), max_iter)
-    st.session_state["iteration_slider_pending"] = None
+    st.session_state["iteration_slider"] = min(max(pending_value, 0), max_iter)  # clamp to slider bounds
+    st.session_state["iteration_slider_pending"] = None  # mark as consumed so Streamlit won't complain
 timeline_container = st.container()
 with timeline_container:
     iteration = st.slider(
@@ -345,9 +365,9 @@ with timeline_container:
         value=st.session_state.get("iteration_slider", max_iter),
         step=1,
         key="iteration_slider",
-    )
+    )  # slider drives the "current" world state being visualized
 current_state = history[iteration]
-state_best_metrics = current_state["best"]["metrics"]
+state_best_metrics = current_state["best"]["metrics"]  # metrics snapshot for whichever iteration we're showing
 phase_label = visuals.phase_from_iteration(iteration, max_iter)
 st.markdown(f"**Current IWO Phase:** {phase_label}")
 best_weights = current_state["best"]["weights"]
@@ -361,15 +381,15 @@ advisor_output = generate_advice(benchmark_bundle, iwo_bundle, best_weights, ass
 with timeline_container:
     control_cols = st.columns([2, 1, 1])
     with control_cols[0]:
-        st.caption(f"Iteration {iteration} / {max_iter}")
+        st.caption(f"Iteration {iteration} / {max_iter}")  # simple progress indicator
     with control_cols[1]:
         auto_play_state = st.session_state.get("auto_play_toggle", False)
-        play_label = "Pause ⏸" if auto_play_state else "Play ▶"
+        play_label = "Pause ⏸" if auto_play_state else "Play ▶"  # dynamic button text
         if st.button(play_label, key="play_pause_button"):
             next_state = not auto_play_state
             st.session_state["auto_play_toggle"] = next_state
             if next_state and iteration >= max_iter:
-                st.session_state["iteration_slider_pending"] = 0
+                st.session_state["iteration_slider_pending"] = 0  # restart loop when re-enabling playback
             st.rerun()
     with control_cols[2]:
         step_ms = st.slider(
@@ -383,6 +403,7 @@ with timeline_container:
 components.html(
     """
     <script>
+    // Locate the iteration slider in the parent DOM and append our sticky class.
     const sliderRoot = window.parent.document.querySelector('div[data-testid="stSlider"][aria-label="Iteration"]');
     if (sliderRoot) {
         const block = sliderRoot.closest('section[data-testid="stVerticalBlock"]');
@@ -397,7 +418,7 @@ components.html(
 auto_play = st.session_state.get("auto_play_toggle", False)
 
 st.markdown("## KPI Overview")
-kpi_tabs = st.tabs(["IWO Portfolio", "S&P 500 Baseline"])
+kpi_tabs = st.tabs(["IWO Portfolio", "S&P 500 Baseline"])  # allow quick toggling between portfolios
 with kpi_tabs[0]:
     _render_metric_cards("Historical KPIs", HISTORICAL_SPECS, iwo_bundle.historical, benchmark_bundle.historical)
 with kpi_tabs[1]:
@@ -523,6 +544,6 @@ with narration:
 
 auto_play = st.session_state.get("auto_play_toggle", False)
 if auto_play and iteration < max_iter:
-    time.sleep(step_ms / 1000)
-    st.session_state["iteration_slider_pending"] = iteration + 1
-    st.rerun()
+    time.sleep(step_ms / 1000)  # throttle so the animation is visible
+    st.session_state["iteration_slider_pending"] = iteration + 1  # request the next frame
+    st.rerun()  # re-run the app immediately to simulate animation

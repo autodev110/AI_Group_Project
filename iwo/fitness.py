@@ -31,6 +31,7 @@ class FitnessResult:
 
 
 def _constraint_penalty(weights: np.ndarray, config: ConstraintConfig) -> float:
+    """Compute a quadratic penalty for violations of the budgeting rules."""
     deviation = abs(weights.sum() - config.sum_target)
     below_zero = np.abs(weights[weights < config.negative_tolerance]).sum()
     diversification = 0.0

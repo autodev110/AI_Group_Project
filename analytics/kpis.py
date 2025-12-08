@@ -1,4 +1,9 @@
-"""KPI aggregation utilities for the dashboard."""
+"""KPI aggregation utilities for the dashboard.
+
+This module sits between the raw PortfolioMetrics / ForecastResult objects and
+the Streamlit UI.  By assembling "bundles" of related KPIs here, the front end
+can stay declarative while tests target the pure-Python logic below.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,6 +24,7 @@ class PortfolioKPIBundle:
 
 
 def historical_kpis(metrics: PortfolioMetrics) -> Dict[str, float]:
+    """Extract the scalar statistics the UI surfaces as historical KPIs."""
     return {
         "annual_return": metrics.annual_return,
         "volatility": metrics.volatility,
@@ -30,10 +36,12 @@ def historical_kpis(metrics: PortfolioMetrics) -> Dict[str, float]:
 
 
 def forecast_kpis(result: ForecastResult) -> Dict[str, float]:
+    """Expose the summary dictionary produced by the Monte Carlo engine."""
     return result.metric_dict()
 
 
 def build_portfolio_kpis(metrics: PortfolioMetrics, forecast: ForecastResult) -> PortfolioKPIBundle:
+    """Assemble a typed container for both historical and forecast KPIs."""
     return PortfolioKPIBundle(
         historical=historical_kpis(metrics),
         forecast=forecast_kpis(forecast),
@@ -43,6 +51,7 @@ def build_portfolio_kpis(metrics: PortfolioMetrics, forecast: ForecastResult) ->
 
 
 def iwo_performance_kpis(history: List[Dict], baseline_metrics: Dict[str, float]) -> Dict[str, float]:
+    """Compute IWO-specific diagnostic metrics relative to the benchmark."""
     final_state = history[-1]
     final_metrics = final_state["best"]["metrics"]
     sharpe_improvement = final_metrics["sharpe"] - baseline_metrics["sharpe"]

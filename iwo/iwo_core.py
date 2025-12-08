@@ -49,23 +49,26 @@ def _project_to_simplex(vector: np.ndarray) -> np.ndarray:
 
 
 def _random_weights(n_assets: int, rng: np.random.Generator) -> np.ndarray:
-    weights = rng.random(n_assets)
-    return weights / weights.sum()
+    """Generate a normalized random portfolio for initialization."""
+    weights = rng.random(n_assets)  # sample positive weights
+    return weights / weights.sum()  # enforce sum-to-one constraint
 
 
 def _sigma_for_iteration(config: IWOConfig, iteration: int) -> float:
-    progress = iteration / max(config.it_max, 1)
-    annealing = (1 - progress) ** config.modulation_index
+    """Compute the dispersal sigma according to the annealing schedule."""
+    progress = iteration / max(config.it_max, 1)  # normalize iteration to [0,1]
+    annealing = (1 - progress) ** config.modulation_index  # control rate of decay
     return config.sigma_final + annealing * (config.sigma_initial - config.sigma_final)
 
 
 def _serialize_candidate(candidate: Dict, include_curve: bool = False) -> Dict:
+    """Convert numpy-heavy candidate dicts into JSON-friendly structures."""
     metrics = candidate["metrics"]
     metrics_dict = metrics.as_dict()
     if include_curve:
-        metrics_dict["wealth_curve"] = metrics.wealth_curve
+        metrics_dict["wealth_curve"] = metrics.wealth_curve  # attach pandas Series for final best
     return {
-        "weights": candidate["weights"].tolist(),
+        "weights": candidate["weights"].tolist(),  # turn numpy arrays into lists
         "cost": candidate["cost"],
         "penalty": candidate["penalty"],
         "objective_value": candidate.get("objective_value"),
@@ -74,6 +77,7 @@ def _serialize_candidate(candidate: Dict, include_curve: bool = False) -> Dict:
 
 
 def _new_candidate(weights: np.ndarray, log_returns: pd.DataFrame, fitness_cfg: ConstraintConfig, config: IWOConfig) -> Dict:
+    """Evaluate a weight vector and package the resulting metrics/cost."""
     result: FitnessResult = evaluate_portfolio(
         weights,
         log_returns,
@@ -92,16 +96,17 @@ def _new_candidate(weights: np.ndarray, log_returns: pd.DataFrame, fitness_cfg: 
 
 
 def _assign_seed_count(cost: float, best_cost: float, worst_cost: float, config: IWOConfig) -> int:
+    """Determine how many offspring a plant receives based on its cost rank."""
     if not np.isfinite(best_cost) or not np.isfinite(worst_cost) or best_cost == worst_cost:
-        return config.s_min
-    ratio = (worst_cost - cost) / (worst_cost - best_cost)
-    seeds = int(np.round(config.s_min + ratio * (config.s_max - config.s_min)))
-    return int(np.clip(seeds, config.s_min, config.s_max))
+        return config.s_min  # fall back to minimum when costs collapse
+    ratio = (worst_cost - cost) / (worst_cost - best_cost)  # normalize fitness between 0 and 1
+    seeds = int(np.round(config.s_min + ratio * (config.s_max - config.s_min)))  # interpolate
+    return int(np.clip(seeds, config.s_min, config.s_max))  # respect integer bounds
 
 
 def run_iwo(log_returns: pd.DataFrame, config: IWOConfig) -> Generator[Dict, None, None]:
     """Yield per-iteration population statistics for the IWO search."""
-    rng = np.random.default_rng(config.rng_seed)
+    rng = np.random.default_rng(config.rng_seed)  # deterministic randomness when seed provided
     n_assets = log_returns.shape[1]
     fitness_cfg = ConstraintConfig(max_weight=config.max_weight, penalty_strength=config.penalty_strength)
     population: List[Dict] = []

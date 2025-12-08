@@ -47,6 +47,7 @@ class ForecastResult:
 
 
 def _simulate_log_returns(log_returns: np.ndarray, config: ForecastConfig) -> np.ndarray:
+    """Draw synthetic daily log returns via bootstrap or GBM."""
     rng = np.random.default_rng(config.random_seed)
     if config.method == "gbm":
         mu = float(np.mean(log_returns))
@@ -58,6 +59,7 @@ def _simulate_log_returns(log_returns: np.ndarray, config: ForecastConfig) -> np
 
 
 def _wealth_paths_from_draws(log_draws: np.ndarray) -> np.ndarray:
+    """Convert simulated log returns into wealth paths starting at $1."""
     cumulative = np.cumsum(log_draws, axis=1)
     wealth = np.exp(cumulative)
     wealth = np.concatenate([np.ones((wealth.shape[0], 1)), wealth], axis=1)
@@ -65,6 +67,7 @@ def _wealth_paths_from_draws(log_draws: np.ndarray) -> np.ndarray:
 
 
 def _max_drawdown_per_path(paths: np.ndarray) -> np.ndarray:
+    """Compute the max drawdown for every simulated path."""
     running_max = np.maximum.accumulate(paths, axis=1)
     drawdowns = paths / running_max - 1
     return drawdowns.min(axis=1)
