@@ -55,14 +55,4 @@ This repository now contains a full end-to-end workflow for the **Invasive Weed 
 
 The application downloads adjusted close data from Yahoo Finance, caches it to `data/cached_prices.parquet`, computes log returns, and streams the weed population for every iteration. The S&P 500 index (^GSPC) is fetched separately and used as the baseline for all KPIs, including wealth comparisons and forecasts. All charts (fitness convergence, wealth curves, risk-return scatter, bubble weights, Monte Carlo fan charts, forecast histograms) can be exported for the 8-page report under `report/figures/`. KPI cards at the top summarize both historical and forecast performance for the S&P 500 baseline and the IWO-optimized portfolio, while the advisory layer explains what the numbers mean in practice.
 
-## Writing the Report
-The dashboard embeds all the elements requested in the project plan:
-
-1. **Introduction / Story:** The header explains the “you have capital + weeds evolve portfolios” narrative in plain language.
-2. **Math / Objective:** Inline captions and expanders define the portfolio constraints, Sharpe ratio, and cost function. The sidebar shows the objective toggle (pure Sharpe vs. return-volatility trade-off).
-3. **Algorithm Section:** The UI footer/timeline and “Narrated Run” expander describe initialization, reproduction, dispersal, and competitive exclusion phases while displaying the live colony.
-4. **Results Figures:** Export convergence curves, wealth curves, risk-return landscapes, bubble-weight visualizations, Monte Carlo fan charts, and ending-wealth distributions from `dashboard/visuals.py` for direct inclusion in the PDF.
-
-Use the metrics tables plus the baseline vs. optimized comparison to write the discussion and connect observations back to the antenna-paper motivation cited in the course notes. When referencing numbers in the report, cite the Streamlit-generated figures so the grader can replicate them.
-
 
