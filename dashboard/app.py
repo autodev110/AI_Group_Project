@@ -10,6 +10,7 @@ from typing import Dict, List
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components  # used for sticky timeline JS hook
+import yfinance as yf
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -127,6 +128,28 @@ def _clone_forecast_config(cfg: ForecastConfig, seed: int | None) -> ForecastCon
     )
 
 
+def _get_company_metadata(tickers: List[str]) -> Dict[str, Dict[str, str | float | None]]:
+    """Fetch and cache company name, sector, and latest price for tickers."""
+    cache: Dict[str, Dict[str, str | float | None]] = st.session_state.setdefault("company_metadata", {})
+    missing = [ticker for ticker in tickers if ticker not in cache]
+    for ticker in missing:
+        info: Dict[str, str | float | None] = {"name": ticker, "sector": "N/A", "price": None}
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            raw_info = getattr(ticker_obj, "info", {}) or {}
+            fast = getattr(ticker_obj, "fast_info", None)
+            info["name"] = raw_info.get("longName") or raw_info.get("shortName") or ticker
+            info["sector"] = raw_info.get("sector") or raw_info.get("industry") or "N/A"
+            if fast and getattr(fast, "last_price", None) is not None:
+                info["price"] = float(fast.last_price)
+            elif raw_info.get("currentPrice") is not None:
+                info["price"] = float(raw_info["currentPrice"])
+        except Exception:
+            pass  # fallback info dict already initialized
+        cache[ticker] = info
+    return {ticker: cache[ticker] for ticker in tickers}
+
+
 def _build_kpi_bundles(weights: List[float], forecast_cfg: ForecastConfig):
     """Compute historical + forecast KPIs for both IWO and the S&P 500."""
     log_returns = st.session_state.returns  # in-sample asset return matrix
@@ -167,6 +190,7 @@ def _init_state() -> None:
     st.session_state.setdefault("dropped_tickers", [])
     st.session_state.setdefault("auto_play_toggle", False)
     st.session_state.setdefault("play_speed", 800)
+    st.session_state.setdefault("company_metadata", {})  # cache ticker metadata for the holdings list
 
 
 def _run_simulation(config: IWOConfig, request: DataRequest) -> None:
@@ -472,7 +496,7 @@ with genome_col:
     st.dataframe(weights_table.style.format({"Weight": "{:.2%}"}), hide_index=True)
 
 st.markdown("### Projections & Scenario Analysis")
-projection_tabs = st.tabs(["IWO Monte Carlo", "Baseline Monte Carlo"])
+projection_tabs = st.tabs(["IWO Monte Carlo", "S&P 500 Monte Carlo"])
 with projection_tabs[0]:
     st.markdown(
         "We simulate thousands of futures using historical daily returns as the DNA for new random paths. The blue fan"
@@ -483,10 +507,25 @@ with projection_tabs[0]:
         visuals.forecast_fan_chart(iwo_forecast.sample_paths, iwo_forecast.median_path, "IWO Simulated Wealth"),
         use_container_width=True,
     )
-    st.plotly_chart(
-        visuals.ending_distribution_histogram(iwo_forecast.ending_distribution, "Distribution of Ending Wealth"),
-        use_container_width=True,
+    st.markdown("**Optimized Holdings Snapshot** — ranks current weights with live fundamentals.")
+    metadata = _get_company_metadata(asset_names)
+    sorted_positions = sorted(
+        zip(asset_names, current_state["best"]["weights"]),
+        key=lambda pair: pair[1],
+        reverse=True,
     )
+    for ticker, weight in sorted_positions:
+        if weight <= 0:
+            continue
+        info = metadata.get(ticker, {})
+        price = info.get("price")
+        price_str = f"${price:.2f}" if isinstance(price, (int, float)) else "N/A"
+        name = info.get("name", ticker)
+        sector = info.get("sector", "N/A")
+        st.markdown(
+            f"**{ticker}** — {name} | {sector} | Price {price_str} | Weight {weight:.2%}",
+            help="Sorted by allocation so you can instantly see the dominant positions.",
+        )
 with projection_tabs[1]:
     st.markdown("Baseline projection uses the same simulator but feeds in the S&P 500 index return stream.")
     base_forecast = benchmark_bundle.forecast_result
@@ -494,13 +533,8 @@ with projection_tabs[1]:
         visuals.forecast_fan_chart(base_forecast.sample_paths, base_forecast.median_path, "Baseline Simulated Wealth"),
         use_container_width=True,
     )
-    st.plotly_chart(
-        visuals.ending_distribution_histogram(base_forecast.ending_distribution, "Distribution of Ending Wealth"),
-        use_container_width=True,
-    )
 st.caption(
-    "Fan charts approximate a range of plausible outcomes; the histogram on the right summarizes the distribution of"
-    " ending wealth after the projection horizon."
+    "Fan charts approximate a range of plausible outcomes. The holdings snapshot above shows the live composition of the IWO portfolio."
 )
 
 st.markdown("### Interpretation & Advice")
@@ -510,37 +544,6 @@ st.markdown(f"**Diversification Check:** {advisor_output['diversification_commen
 st.markdown("**Actionable Ideas:**")
 for bullet in advisor_output["actionable_advice"]:
     st.markdown(f"- {bullet}")
-
-st.markdown("### Pedagogical Helpers")
-expander = st.expander("What are these metrics?", expanded=False)
-with expander:
-    st.markdown(
-        "**Sharpe ratio:** return earned per unit of volatility. **Max drawdown:** the ugliest historical loss."
-        " **Cost function:** cost = -Sharpe + penalty. Minimizing cost therefore maximizes Sharpe while discouraging"
-        " constraint violations (over-concentration or negative weights)."
-    )
-    st.latex(r"S_p = \frac{\mu_p - r_f}{\sigma_p}")
-
-narration = st.expander("Narrated Run", expanded=False)
-with narration:
-    if iteration <= 1:
-        st.write("Iteration 0–1: seeds are scattered randomly; performance ranges wildly.")
-    elif iteration < max_iter * 0.4:
-        st.write("Early colonization: strong weeds spawn more offspring; the colony homes in on promising regions.")
-    elif iteration < max_iter * 0.8:
-        st.write("Middle game: exploration narrows, and most plants now live near the efficient frontier.")
-    else:
-        st.write("Final refinement: sigma is tiny, so offspring tweak successful allocations instead of jumping around.")
-    guided_targets = {
-        "Random start": 0,
-        "Colonization": int(max_iter * 0.25),
-        "Focus": int(max_iter * 0.55),
-        "Convergence": max_iter,
-    }
-    choice = st.selectbox("Guided milestone", list(guided_targets.keys()), index=0)
-    if st.button("Go to milestone", key="guided_jump"):
-        st.session_state["iteration_slider_pending"] = guided_targets[choice]
-        st.rerun()
 
 auto_play = st.session_state.get("auto_play_toggle", False)
 if auto_play and iteration < max_iter:
